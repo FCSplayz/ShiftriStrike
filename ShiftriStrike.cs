@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public class ShiftriStrike : MonoBehaviour
@@ -42,10 +41,6 @@ public class ShiftriStrike : MonoBehaviour
 		public static Vector3Int useSonicDrop { get; } = new Vector3Int(0, int.MinValue, 0);
 	}
 
-	private void Start()
-	{
-	}
-
 	private void Update()
 	{
 		if (runAI && shiftriStrikeCoroutine == null)
@@ -66,8 +61,11 @@ public class ShiftriStrike : MonoBehaviour
 				Search(board.activePiece.cells, new Vector3Int(board.activePiece.position.x, board.activePiece.position.y, board.activePiece.rotationIndex), board.speedLevel >= 20);
 				ChooseTargetPlacement();
 			}
-			yield return new WaitForSeconds(moveTime);
-			MakeMove();
+			else
+			{
+				yield return new WaitForSeconds(moveTime);
+				MakeMove();
+			}
 			yield return null;
 		}
 	}
@@ -148,6 +146,9 @@ public class ShiftriStrike : MonoBehaviour
 
 	private void Search(Vector3Int[] cells, Vector3Int initialState, bool is20G)
 	{
+		if (!needsTarget)
+			return;
+
 		List<(Vector3Int state, Queue<Vector3Int> moveQueue)> validStatesToExploreFromNext = new List<(Vector3Int state, Queue<Vector3Int> moveQueue)>()
 		{
 			(initialState, s_InitialQueue)
@@ -166,61 +167,69 @@ public class ShiftriStrike : MonoBehaviour
 		do
 		{
 			statesPreviouslyExploredFrom = new List<(Vector3Int state, Queue<Vector3Int> moveQueue)>(validStatesToExploreFromNext);
-			statesToExploreFrom.SelectMany(exploreFrom => s_PossibleMoveStateTranslations.Values.Where(stateTranslation => (stateTranslation != (exploreFrom.moveQueue.Count != 0 ? -exploreFrom.moveQueue.Reverse().ToList()[0] : Vector3Int.zero))
-								&& stateTranslation.z == 0 ? SearchIsMoveValid(cells, exploreFrom.state, stateTranslation, exploreFrom.moveQueue, false)
-														   : SearchIsRotateValid(cells, exploreFrom.state, stateTranslation.z, exploreFrom.moveQueue, false)),
-								(exploreFrom, stateTranslation) => new { ExploreFrom = exploreFrom, StateTranslation = stateTranslation })
-							   .ToList().ForEach(stateExploration =>
-							   {
-								   Vector3Int newState = stateExploration.ExploreFrom.state + stateExploration.StateTranslation;
-								   newState.z = SearchWrap(newState.z, 0, 4);
+			foreach ((Vector3Int state, Queue<Vector3Int> moveQueue) exploreFrom in statesToExploreFrom.ToList())
+			{
+				foreach (Vector3Int stateTranslation in s_PossibleMoveStateTranslations.Values)
+				{
+					if (exploreFrom.moveQueue.Count != 0 ? stateTranslation == -exploreFrom.moveQueue.Reverse().ToList()[0] : false) break;
+					else if (stateTranslation.z == 0
+						? SearchIsMoveValid(cells, exploreFrom.state, stateTranslation, exploreFrom.moveQueue, false)
+						: SearchIsRotateValid(cells, exploreFrom.state, stateTranslation.z, exploreFrom.moveQueue, false))
+					{
+						Vector3Int newState = exploreFrom.state + stateTranslation;
+						newState.z = SearchWrap(newState.z, 0, 4);
 
-								   if (stateExploration.StateTranslation.z != 0)
-								   {
-									   int wallKickIndex = SearchGetWallKickIndex(stateExploration.ExploreFrom.state.z, stateExploration.StateTranslation.z);
-									   Vector2Int[,] wallKickData = stateExploration.StateTranslation.z == 2 ? board.activePiece.data.wallKicks180 : board.activePiece.data.wallKicks;
+						if (stateTranslation.z != 0)
+						{
+							int wallKickIndex = SearchGetWallKickIndex(exploreFrom.state.z, stateTranslation.z);
+							Vector2Int[,] wallKickData = stateTranslation.z == 2
+								? board.activePiece.data.wallKicks180
+								: board.activePiece.data.wallKicks;
 
-									   for (int i = 0; i < wallKickData.GetLength(1); ++i)
-									   {
-										   Vector2Int translation = wallKickData[wallKickIndex, i];
-										   Vector3Int translatedNewState = newState + (Vector3Int)translation;
+							for (int i = 0; i < wallKickData.GetLength(1); ++i)
+							{
+								Vector2Int translation = wallKickData[wallKickIndex, i];
+								Vector3Int translatedNewState = newState + (Vector3Int)translation;
 
-										   if (SearchIsValidState(cells, translatedNewState))
-										   {
-											   newState = translatedNewState;
-											   break;
-										   }
-									   }
-								   }
-								   if (is20G)
-								   {
-									   while (SearchIsValidState(cells, newState + Vector3Int.down))
-										   newState.y--;
-								   }
+								if (SearchIsValidState(cells, translatedNewState))
+								{
+									newState = translatedNewState;
+									break;
+								}
+							}
+						}
 
-								   if (!validStatesToExploreFromNext.Select(exploreState => exploreState.state).Contains(newState) && SearchIsValidState(cells, newState))
-								   {
-									   bool validMove = stateExploration.StateTranslation.z == 0 ? SearchIsMoveValid(cells, stateExploration.ExploreFrom.state, stateExploration.StateTranslation, stateExploration.ExploreFrom.moveQueue, true)
-																								 : SearchIsRotateValid(cells, stateExploration.ExploreFrom.state, stateExploration.StateTranslation.z, stateExploration.ExploreFrom.moveQueue, true);
+						if (is20G)
+						{
+							while (SearchIsValidState(cells, newState + Vector3Int.down))
+								newState.y--;
+						}
 
-									   if (validMove)
-									   {
-										   Queue<Vector3Int> newMoveQueue = stateExploration.ExploreFrom.moveQueue;
-										   newMoveQueue.Enqueue(stateExploration.StateTranslation);
-										   validStatesToExploreFromNext.Add((newState, newMoveQueue));
+						if (SearchIsValidState(cells, newState))
+						{
+							bool validMove = stateTranslation.z == 0
+								? SearchIsMoveValid(cells, exploreFrom.state, stateTranslation, exploreFrom.moveQueue, true)
+								: SearchIsRotateValid(cells, exploreFrom.state, stateTranslation.z, exploreFrom.moveQueue, true);
 
-										   if (!SearchIsValidState(cells, newState + Vector3Int.down))
-										   {
-											   newMoveQueue.Enqueue(QueueMarkers.endOfQueue);
-											   possiblePlacements.Add((newState, newMoveQueue));
-										   }
-									   }
-								   }
-							   });
-			validStatesToExploreFromNext.RemoveAll(state => statesPreviouslyExploredFrom.Contains(state));
-			statesToExploreFrom = validStatesToExploreFromNext;
-			if (possiblePlacements.Count > 0)
-				break;
+							if (validMove && !visitedStatesHashSet.Contains(newState))
+							{
+								Queue<Vector3Int> newMoveQueue = new Queue<Vector3Int>(exploreFrom.moveQueue.ToList());
+								newMoveQueue.Enqueue(stateTranslation);
+								validStatesToExploreFromNext.Add((newState, newMoveQueue));
+
+								if (!SearchIsValidState(cells, newState + Vector3Int.down))
+								{
+									newMoveQueue.Enqueue(QueueMarkers.endOfQueue);
+									possiblePlacements.Add((newState, newMoveQueue));
+								}
+							}
+						}
+					}
+				}
+			}
+
+			validStatesToExploreFromNext.RemoveAll(state => statesPreviouslyExploredFrom.Contains(state) || !SearchIsValidState(cells, state.state));
+			statesToExploreFrom = validStatesToExploreFromNext.ToList();
 		} while (validStatesToExploreFromNext.Count != 0);
 
 		if (possiblePlacements.Count == 0)
