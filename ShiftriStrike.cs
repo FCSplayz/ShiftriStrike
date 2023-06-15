@@ -171,7 +171,7 @@ public class ShiftriStrike : MonoBehaviour
 			{
 				foreach (Vector3Int stateTranslation in s_PossibleMoveStateTranslations.Values)
 				{
-					if (exploreFrom.moveQueue.Count != 0 ? stateTranslation == -exploreFrom.moveQueue.Reverse().ToList()[0] : false) break;
+					if (exploreFrom.moveQueue.Count != 0 ? stateTranslation == -exploreFrom.moveQueue.Reverse().ToList()[0] : true) break;
 					else if (stateTranslation.z == 0
 						? SearchIsMoveValid(cells, exploreFrom.state, stateTranslation, exploreFrom.moveQueue, false)
 						: SearchIsRotateValid(cells, exploreFrom.state, stateTranslation.z, exploreFrom.moveQueue, false))
